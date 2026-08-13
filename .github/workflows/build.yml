@@ -19,7 +19,7 @@ jobs:
           java-version: '8'
 
       - name: Build package
-        run: mvn package -PcollectDependencies -Duser.id=$(id -u)
+        run: mvn package -PcollectDependencies -Duser.name=$(id -u) -Duser.id=$(id -u)
         shell: bash
 
       - name: Upload built package
