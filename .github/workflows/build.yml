@@ -19,7 +19,8 @@ jobs:
           java-version: '8'
 
       - name: Build package
-        run: mvn package -PcollectDependencies
+        run: mvn package -PcollectDependencies -Duser.id=$(id -u)
+        shell: bash
 
       - name: Upload built package
         uses: actions/upload-artifact@v4
