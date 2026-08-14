@@ -41,7 +41,13 @@ def do_get_ip_ranges(self, auth_credentials, cert):
     logging.info("Collecting ranges")
 
     headers = {"Authorization": f"Bearer {token}"}
-    url = f"{str(netbox_url)}/api/ipam/{str(netbox_object)}/?site={str(netbox_site)}&tag={str(netbox_tag)}"
+
+    # IP Range objects in NetBox have no "site" field, so the site filter
+    # only applies when querying prefixes. For ip-ranges, tag is the sole scope.
+    if netbox_object == "prefixes":
+        url = f"{str(netbox_url)}/api/ipam/{str(netbox_object)}/?site={str(netbox_site)}&tag={str(netbox_tag)}"
+    else:
+        url = f"{str(netbox_url)}/api/ipam/{str(netbox_object)}/?tag={str(netbox_tag)}"
 
     result_ranges = []
 
