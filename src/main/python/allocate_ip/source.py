@@ -93,7 +93,7 @@ def allocate_in_range(range_id, auth_credentials, resource, allocation, context,
     netbox_url = endpoint["endpointProperties"]["hostName"]
     netbox_object = endpoint["endpointProperties"]["netboxObject"]
     headers = {
-        "Authorization": f"Token {token}",
+        "Authorization": f"Bearer {token}",
         "accept": "application/json",
         "Content-Type": "application/json",
     }
@@ -168,7 +168,7 @@ def rollback(allocation_result, auth_credentials, endpoint):
     token = auth_credentials["privateKey"]
     netbox_url = endpoint["endpointProperties"]["hostName"]
     headers = {
-        "Authorization": f"Token {token}",
+        "Authorization": f"Bearer {token}",
         "accept": "application/json",
         "Content-Type": "application/json",
     }
