@@ -101,14 +101,14 @@ def allocate_in_range(range_id, auth_credentials, resource, allocation, context,
 
     if netbox_object == "ip-ranges":
         response = requests.get(
-            f"{netbox_url}/api/ipam/ip-ranges/{str(range_id)}",
+            f"{netbox_url}/api/ipam/ip-ranges/{str(range_id)}/",
             headers=headers,
             verify=verify,
         )
         r = response.json()
     else:
         response = requests.get(
-            f"{netbox_url}/api/ipam/prefixes/{str(range_id)}",
+            f"{netbox_url}/api/ipam/prefixes/{str(range_id)}/",
             headers=headers,
             verify=verify,
         )
@@ -118,7 +118,7 @@ def allocate_in_range(range_id, auth_credentials, resource, allocation, context,
         p_error = logging.error(f"Range {str(r['id'])} does not match given ipRangeId: {str(range_id)}")
         return p_error  # error if the prefix doesn't match the range_id from vRA
 
-    addresses = requests.get(f"{str(r['url'])}/available-ips/?limit=5", headers=headers, verify=verify)
+    addresses = requests.get(f"{str(r['url'])}available-ips/?limit=5", headers=headers, verify=verify)
 
     for address in addresses.json():
         network = (ipaddress.ip_interface(str(address["address"]))).network  # get parent prefix from ip address object
