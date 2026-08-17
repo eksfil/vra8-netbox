@@ -114,28 +114,35 @@ def allocate_in_range(range_id, auth_credentials, resource, allocation, context,
         )
         r = response.json()
 
+    logging.info(f"Range lookup response: {response.status_code} - {response.text}")
+
     if str(r["id"]) != str(range_id):  # ensure we have the correct prefix
         p_error = logging.error(f"Range {str(r['id'])} does not match given ipRangeId: {str(range_id)}")
         return p_error  # error if the prefix doesn't match the range_id from vRA
 
-    addresses = requests.get(f"{str(r['url'])}available-ips/?limit=5", headers=headers, verify=verify)
+    addresses_response = requests.get(f"{str(r['url'])}available-ips/?limit=5", headers=headers, verify=verify)
+    logging.info(f"available-ips raw response: {addresses_response.status_code} - {addresses_response.text}")
+    addresses_json = addresses_response.json()
 
-    for address in addresses.json():
+    for address in addresses_json:
+        logging.info(f"Processing address entry: {address}")
         network = (ipaddress.ip_interface(str(address["address"]))).network  # get parent prefix from ip address object
         ip = str(address["address"]).split("/")[0]  # get ip address without cidr prefix
         if str(ip) != str(network[1]):
             payload = {
                 "family": 4,
                 "address": str(address["address"]),
-                "vrf": str(address["vrf"]["id"]),
                 "dns_name": str(resource["name"]),
             }
+            if address.get("vrf"):
+                payload["vrf"] = str(address["vrf"]["id"])
             post_ip = requests.post(
                 f"{str(netbox_url)}/api/ipam/ip-addresses/",
                 json=payload,
                 headers=headers,
                 verify=verify,
             )
+            logging.info(f"POST ip-addresses response: {post_ip.status_code} - {post_ip.text}")
             if post_ip.status_code == 201:
                 ips.append(ip)
             else:
