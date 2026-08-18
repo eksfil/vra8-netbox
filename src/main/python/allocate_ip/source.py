@@ -1,86 +1,28 @@
 """
 Copyright (c) 2020 VMware, Inc.
-
 Modified for NetBox by Ryan Hinson (@rnhinson)
-
 This product is licensed to you under the Apache License, Version 2.0 (the "License").
 You may not use this product except in compliance with the License.
-
 This product may include a number of subcomponents with separate copyright notices
 and license terms. Your use of these subcomponents is subject to the terms and
 conditions of the subcomponent's license, as noted in the LICENSE file.
 """
-
 import requests
 from vra_ipam_utils.ipam import IPAM
 import logging
-import os
-import ipaddress
 from requests.packages import urllib3
+import ipaddress
 
 
 def handler(context, inputs):
-
     ipam = IPAM(context, inputs)
-    IPAM.do_allocate_ip = do_allocate_ip
+    IPAM.do_get_ip_ranges = do_get_ip_ranges
+    return ipam.get_ip_ranges()
 
-    return ipam.allocate_ip()
 
-
-def do_allocate_ip(self, auth_credentials, cert):
-    username = auth_credentials["privateKeyId"]  # not needed for NetBox, but required for vRA IPAM plugin
-    token = auth_credentials["privateKey"]
-
-    allocation_result = []
+def do_get_ip_ranges(self, auth_credentials, cert):
     try:
-        resource = self.inputs["resourceInfo"]
-        for allocation in self.inputs["ipAllocations"]:
-            allocation_result.append(
-                allocate(
-                    resource,
-                    auth_credentials,
-                    allocation,
-                    self.context,
-                    self.inputs["endpoint"],
-                )
-            )
-    except Exception as e:
-        try:
-            rollback(allocation_result, auth_credentials, self.inputs["endpoint"])
-        except Exception as rollback_e:
-            logging.error(
-                f"Error during rollback of allocation result {str(allocation_result)}"
-            )
-            logging.error(rollback_e)
-        raise e
-
-    assert len(allocation_result) > 0
-    return {"ipAllocations": allocation_result}
-
-
-def allocate(resource, auth_credentials, allocation, context, endpoint):
-
-    last_error = None
-    for range_id in allocation["ipRangeIds"]:
-
-        logging.info(f"Allocating from range {range_id}")
-        try:
-            logging.warning(str(range_id))
-            return allocate_in_range(
-                range_id, auth_credentials, resource, allocation, context, endpoint
-            )
-        except Exception as e:
-            last_error = e
-            logging.error(f"Failed to allocate from range {range_id}: {str(e)}")
-
-    logging.error("No more ranges. Raising last error")
-    raise last_error
-
-
-def allocate_in_range(range_id, auth_credentials, resource, allocation, context, endpoint):
-
-    try:
-        ignore_ssl = str(endpoint["endpointProperties"]["ignore_ssl"])
+        ignore_ssl = str(self.inputs["endpoint"]["endpointProperties"]["ignore_ssl"])
         if ignore_ssl == "true":
             urllib3.disable_warnings(category=urllib3.exceptions.InsecureRequestWarning)
             verify = False
@@ -89,121 +31,77 @@ def allocate_in_range(range_id, auth_credentials, resource, allocation, context,
     except Exception as e:
         raise e
 
+    netbox_object = self.inputs["endpoint"]["endpointProperties"]["netboxObject"]
+    netbox_tag = self.inputs["endpoint"]["endpointProperties"]["netboxTag"]
+    netbox_url = self.inputs["endpoint"]["endpointProperties"]["hostName"]
+    netbox_site = self.inputs["endpoint"]["endpointProperties"]["netboxSite"]
+    username = auth_credentials["privateKeyId"]
     token = auth_credentials["privateKey"]
-    netbox_url = endpoint["endpointProperties"]["hostName"]
-    netbox_object = endpoint["endpointProperties"]["netboxObject"]
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "accept": "application/json",
-        "Content-Type": "application/json",
-    }
-    ips = []
 
-    if netbox_object == "ip-ranges":
-        response = requests.get(
-            f"{netbox_url}/api/ipam/ip-ranges/{str(range_id)}/",
-            headers=headers,
-            verify=verify,
-        )
-        r = response.json()
+    logging.info("Collecting ranges")
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # IP Range objects in NetBox have no "site" field, so the site filter
+    # only applies when querying prefixes. For ip-ranges, tag is the sole scope.
+    if netbox_object == "prefixes":
+        url = f"{str(netbox_url)}/api/ipam/{str(netbox_object)}/?site={str(netbox_site)}&tag={str(netbox_tag)}"
     else:
-        response = requests.get(
-            f"{netbox_url}/api/ipam/prefixes/{str(range_id)}/",
-            headers=headers,
-            verify=verify,
-        )
-        r = response.json()
+        url = f"{str(netbox_url)}/api/ipam/{str(netbox_object)}/?tag={str(netbox_tag)}"
 
-    logging.info(f"Range lookup response: {response.status_code} - {response.text}")
+    result_ranges = []
 
-    if str(r["id"]) != str(range_id):  # ensure we have the correct prefix
-        p_error = logging.error(f"Range {str(r['id'])} does not match given ipRangeId: {str(range_id)}")
-        return p_error  # error if the prefix doesn't match the range_id from vRA
+    # Follow pagination until every page has been collected
+    while url:
+        response = requests.get(url, verify=verify, headers=headers)
+        response.raise_for_status()
+        payload = response.json()
+        r = payload["results"]
 
-    addresses_response = requests.get(f"{str(r['url'])}available-ips/?limit=5", headers=headers, verify=verify)
-    logging.info(f"available-ips raw response: {addresses_response.status_code} - {addresses_response.text}")
-    addresses_json = addresses_response.json()
+        if netbox_object == "prefixes":
+            for prefix in r:
+                subnet = ipaddress.ip_network(str(prefix["prefix"]))
+                network_range = {
+                    "id": str(prefix['id']),
+                    "name": str(prefix['vlan']['name']),
+                    "startIPAddress": str(subnet[4]),
+                    "endIPAddress": str(subnet[-4]),
+                    "ipVersion": "IPv4",
+                    "subnetPrefixLength": str(subnet.prefixlen),
+                    "gatewayAddress": str(prefix.get("custom_fields", {}).get("gateway") or subnet[1]),
+                }
+                try:
+                    if "domain" in self.inputs["endpoint"]["endpointProperties"]:
+                        network_range["domain"] = self.inputs["endpoint"]["endpointProperties"]["domain"]
+                    else:
+                        logging.info("Domain variable not set. Ignoring.")
+                except Exception as e:
+                    raise e
+                result_ranges.append(network_range)
+        else:
+            for ip_range in r:
+                subnet = (ipaddress.ip_interface(str(ip_range['start_address']))).network
+                network_range = {
+                    "id": str(ip_range['id']),
+                    "name": str(ip_range['display']),
+                    "startIPAddress": str(ip_range['start_address'].split('/')[0]),
+                    "endIPAddress": str(ip_range['end_address'].split('/')[0]),
+                    "ipVersion": str(ip_range['family']['label']),
+                    "subnetPrefixLength": str(subnet.prefixlen),
+                    "gatewayAddress": str(ip_range.get("custom_fields", {}).get("gateway") or subnet[1]),
+                }
+                try:
+                    if "domain" in self.inputs["endpoint"]["endpointProperties"]:
+                        network_range["domain"] = self.inputs["endpoint"]["endpointProperties"]["domain"]
+                    else:
+                        logging.info("Domain variable not set. Ignoring.")
+                except Exception as e:
+                    raise e
+                result_ranges.append(network_range)
 
-    for address in addresses_json:
-        logging.info(f"Processing address entry: {address}")
-        network = (ipaddress.ip_interface(str(address["address"]))).network  # get parent prefix from ip address object
-        ip = str(address["address"]).split("/")[0]  # get ip address without cidr prefix
-        if str(ip) != str(network[1]):
-            payload = {
-                "family": 4,
-                "address": str(address["address"]),
-                "dns_name": str(resource["name"]),
-            }
-            if address.get("vrf"):
-                payload["vrf"] = str(address["vrf"]["id"])
-            post_ip = requests.post(
-                f"{str(netbox_url)}/api/ipam/ip-addresses/",
-                json=payload,
-                headers=headers,
-                verify=verify,
-            )
-            logging.info(f"POST ip-addresses response: {post_ip.status_code} - {post_ip.text}")
-            if post_ip.status_code == 201:
-                ips.append(ip)
-            else:
-                error = logging.error(f"Failed to provision IP address with status code: {post_ip.status_code}")
-                return error
-        if ips != []:
-            break
+        url = payload.get("next")
 
     result = {
-        "ipAllocationId": allocation["id"],
-        "ipRangeId": str(range_id),
-        "ipVersion": "IPv4",
+        "ipRanges": result_ranges
     }
-    result["ipAddresses"] = ips
-    result["properties"] = {"customPropertyKey1": "customPropertyValue1"}
-
     return result
-
-
-## Rollback any previously allocated addresses in case this allocation request contains multiple ones and failed in the middle
-def rollback(allocation_result, auth_credentials, endpoint):
-
-    ignore_ssl = endpoint["endpointProperties"]["ignore_ssl"]
-    if ignore_ssl == "true":
-        urllib3.disable_warnings(category=urllib3.exceptions.InsecureRequestWarning)
-        verify = False
-    else:
-        verify = True
-
-    token = auth_credentials["privateKey"]
-    netbox_url = endpoint["endpointProperties"]["hostName"]
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "accept": "application/json",
-        "Content-Type": "application/json",
-    }
-
-    for allocation in reversed(allocation_result):
-        logging.info(f"Rolling back allocation {str(allocation)}")
-        ipAddresses = allocation.get("ipAddresses", None)
-
-        for ipAddress in ipAddresses:
-            ip = requests.get(
-                f"{netbox_url}/api/ipam/ip-addresses/?address={ipAddress}",
-                headers=headers,
-                verify=verify,
-            )
-            results = ip.json()["results"]
-            ips = []
-
-            for result in results:
-                payload = {"address": str(result["address"]), "id": str(result["id"])}
-                ips.append(payload)
-            delete = requests.delete(
-                f"{netbox_url}/api/ipam/ip-addresses/",
-                json=ips,
-                headers=headers,
-                verify=verify,
-            )
-            if delete.status_code != 204:
-                e = logging.error(f"IP Delete failed with status code: {delete.status_code}")
-                return e
-
-    return
