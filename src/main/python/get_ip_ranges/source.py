@@ -42,8 +42,6 @@ def do_get_ip_ranges(self, auth_credentials, cert):
 
     headers = {"Authorization": f"Bearer {token}"}
 
-    # IP Range objects in NetBox have no "site" field, so the site filter
-    # only applies when querying prefixes. For ip-ranges, tag is the sole scope.
     if netbox_object == "prefixes":
         url = f"{str(netbox_url)}/api/ipam/{str(netbox_object)}/?site={str(netbox_site)}&tag={str(netbox_tag)}"
     else:
@@ -51,7 +49,6 @@ def do_get_ip_ranges(self, auth_credentials, cert):
 
     result_ranges = []
 
-    # Follow pagination until every page has been collected
     while url:
         response = requests.get(url, verify=verify, headers=headers)
         response.raise_for_status()
@@ -68,7 +65,7 @@ def do_get_ip_ranges(self, auth_credentials, cert):
                     "endIPAddress": str(subnet[-4]),
                     "ipVersion": "IPv4",
                     "subnetPrefixLength": str(subnet.prefixlen),
-                    "gatewayAddress": str(subnet[1]),
+                    "gatewayAddress": str(prefix.get("custom_fields", {}).get("gateway") or subnet[1]),
                 }
                 try:
                     if "domain" in self.inputs["endpoint"]["endpointProperties"]:
@@ -88,7 +85,7 @@ def do_get_ip_ranges(self, auth_credentials, cert):
                     "endIPAddress": str(ip_range['end_address'].split('/')[0]),
                     "ipVersion": str(ip_range['family']['label']),
                     "subnetPrefixLength": str(subnet.prefixlen),
-                    "gatewayAddress": str(subnet[1]),
+                    "gatewayAddress": str(ip_range.get("custom_fields", {}).get("gateway") or subnet[1]),
                 }
                 try:
                     if "domain" in self.inputs["endpoint"]["endpointProperties"]:
