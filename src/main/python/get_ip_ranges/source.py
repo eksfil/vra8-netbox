@@ -66,6 +66,7 @@ def do_get_ip_ranges(self, auth_credentials, cert):
                     "ipVersion": "IPv4",
                     "subnetPrefixLength": str(subnet.prefixlen),
                     "gatewayAddress": str(prefix.get("custom_fields", {}).get("gateway") or subnet[1]),
+                    "dnsServerAddresses": [prefix.get("custom_fields", {}).get("dns_server")] if prefix.get("custom_fields", {}).get("dns_server") else [],
                 }
                 try:
                     if "domain" in self.inputs["endpoint"]["endpointProperties"]:
@@ -86,6 +87,7 @@ def do_get_ip_ranges(self, auth_credentials, cert):
                     "ipVersion": str(ip_range['family']['label']),
                     "subnetPrefixLength": str(subnet.prefixlen),
                     "gatewayAddress": str(ip_range.get("custom_fields", {}).get("gateway") or subnet[1]),
+                    "dnsServerAddresses": [ip_range.get("custom_fields", {}).get("dns_server")] if ip_range.get("custom_fields", {}).get("dns_server") else [],
                 }
                 try:
                     if "domain" in self.inputs["endpoint"]["endpointProperties"]:
