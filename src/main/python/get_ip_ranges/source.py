@@ -50,14 +50,20 @@ def do_get_ip_ranges(self, auth_credentials, cert):
     result_ranges = []
 
     while url:
-        response = requests.get(url, verify=verify, headers=headers)
-        response.raise_for_status()
+        try:
+            response = requests.get(url, verify=verify, headers=headers)
+            response.raise_for_status()
+        except Exception as e:
+            raise Exception(f"Failed connecting to URL: '{url}' — original error: {str(e)}")
+
         payload = response.json()
         r = payload["results"]
 
         if netbox_object == "prefixes":
             for prefix in r:
                 subnet = ipaddress.ip_network(str(prefix["prefix"]))
+                dns_raw = prefix.get("custom_fields", {}).get("dns_server", "") or ""
+                dns_list = [ip.strip() for ip in dns_raw.split(",") if ip.strip()]
                 network_range = {
                     "id": str(prefix['id']),
                     "name": str(prefix['vlan']['name']),
@@ -66,7 +72,7 @@ def do_get_ip_ranges(self, auth_credentials, cert):
                     "ipVersion": "IPv4",
                     "subnetPrefixLength": str(subnet.prefixlen),
                     "gatewayAddress": str(prefix.get("custom_fields", {}).get("gateway") or subnet[1]),
-                    "dnsServerAddresses": [prefix.get("custom_fields", {}).get("dns_server")] if prefix.get("custom_fields", {}).get("dns_server") else [],
+                    "dnsServerAddresses": dns_list,
                 }
                 try:
                     if "domain" in self.inputs["endpoint"]["endpointProperties"]:
@@ -79,6 +85,8 @@ def do_get_ip_ranges(self, auth_credentials, cert):
         else:
             for ip_range in r:
                 subnet = (ipaddress.ip_interface(str(ip_range['start_address']))).network
+                dns_raw = ip_range.get("custom_fields", {}).get("dns_server", "") or ""
+                dns_list = [ip.strip() for ip in dns_raw.split(",") if ip.strip()]
                 network_range = {
                     "id": str(ip_range['id']),
                     "name": str(ip_range['display']),
@@ -87,7 +95,7 @@ def do_get_ip_ranges(self, auth_credentials, cert):
                     "ipVersion": str(ip_range['family']['label']),
                     "subnetPrefixLength": str(subnet.prefixlen),
                     "gatewayAddress": str(ip_range.get("custom_fields", {}).get("gateway") or subnet[1]),
-                    "dnsServerAddresses": [ip_range.get("custom_fields", {}).get("dns_server")] if ip_range.get("custom_fields", {}).get("dns_server") else [],
+                    "dnsServerAddresses": dns_list,
                 }
                 try:
                     if "domain" in self.inputs["endpoint"]["endpointProperties"]:
