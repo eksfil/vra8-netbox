@@ -42,6 +42,7 @@ def deallocate(resource, endpoint, deallocation, auth_credentials, netbox_url, t
             verify = True
     except Exception as e:
         raise e
+
     ip_range_id = deallocation["ipRangeId"]
     ip = deallocation["ipAddress"]
     resource_id = resource["id"]
@@ -51,7 +52,14 @@ def deallocate(resource, endpoint, deallocation, auth_credentials, netbox_url, t
       "Content-Type": "application/json"
     }
     logging.info(f"Deallocating ip {ip} from range {ip_range_id}")
-    ip_get = requests.get(f"{netbox_url}/api/ipam/ip-addresses/?address={ip}", headers=headers, verify=verify)
+
+    get_url = f"{netbox_url}/api/ipam/ip-addresses/?address={ip}"
+    try:
+        ip_get = requests.get(get_url, headers=headers, verify=verify)
+        ip_get.raise_for_status()
+    except Exception as e:
+        raise Exception(f"GET failed for URL: '{get_url}' (netbox_url='{netbox_url}') — original error: {str(e)}")
+
     results = ip_get.json()["results"]
     ips = []
     for result in results:
@@ -60,7 +68,13 @@ def deallocate(resource, endpoint, deallocation, auth_credentials, netbox_url, t
         "id": str(result["id"])
       }
       ips.append(payload)
-    delete = requests.delete(f"{netbox_url}/api/ipam/ip-addresses/", json=ips, headers=headers, verify=verify)
+
+    delete_url = f"{netbox_url}/api/ipam/ip-addresses/"
+    try:
+        delete = requests.delete(delete_url, json=ips, headers=headers, verify=verify)
+    except Exception as e:
+        raise Exception(f"DELETE failed for URL: '{delete_url}' — original error: {str(e)}")
+
     if delete.status_code != 204:
       error = logging.error(f"IP deletion from Netbox failed with status code: {delete.status_code}")
       return error
