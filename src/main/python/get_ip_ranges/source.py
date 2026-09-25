@@ -64,9 +64,13 @@ def do_get_ip_ranges(self, auth_credentials, cert):
                 subnet = ipaddress.ip_network(str(prefix["prefix"]))
                 dns_raw = prefix.get("custom_fields", {}).get("dns_server", "") or ""
                 dns_list = [ip.strip() for ip in dns_raw.split(",") if ip.strip()]
+
+                vlan_info = prefix.get("vlan")
+                range_name = str(vlan_info["name"]) if vlan_info else str(prefix["prefix"])
+
                 network_range = {
                     "id": str(prefix['id']),
-                    "name": str(prefix['vlan']['name']),
+                    "name": range_name,
                     "startIPAddress": str(subnet[4]),
                     "endIPAddress": str(subnet[-4]),
                     "ipVersion": "IPv4",
