@@ -66,7 +66,10 @@ def do_get_ip_ranges(self, auth_credentials, cert):
                 dns_list = [ip.strip() for ip in dns_raw.split(",") if ip.strip()]
 
                 vlan_info = prefix.get("vlan")
-                range_name = str(vlan_info["name"]) if vlan_info else str(prefix["prefix"])
+                if vlan_info:
+                    range_name = f"{vlan_info['name']} ({prefix['prefix']})"
+                else:
+                    range_name = str(prefix["prefix"])
 
                 network_range = {
                     "id": str(prefix['id']),
