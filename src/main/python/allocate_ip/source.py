@@ -18,6 +18,9 @@ import os
 import ipaddress
 from requests.packages import urllib3
 
+# Brukes bare hvis integrasjonen ikke har Domain-feltet utfylt
+FALLBACK_DOMAIN = "deres-domene.no"
+
 
 def handler(context, inputs):
 
@@ -77,6 +80,14 @@ def allocate(resource, auth_credentials, allocation, context, endpoint):
     raise last_error
 
 
+def build_fqdn(resource, endpoint):
+    name = str(resource["name"]).strip().lower()
+    domain = str(endpoint["endpointProperties"].get("domain") or FALLBACK_DOMAIN).strip().lower().lstrip(".")
+    if not domain or name.endswith("." + domain):
+        return name
+    return f"{name}.{domain}"
+
+
 def allocate_in_range(range_id, auth_credentials, resource, allocation, context, endpoint):
 
     try:
@@ -98,8 +109,10 @@ def allocate_in_range(range_id, auth_credentials, resource, allocation, context,
         "Content-Type": "application/json",
     }
     ips = []
+    fqdn = build_fqdn(resource, endpoint)
 
     logging.info(f"netboxObject configured as: {netbox_object}")
+    logging.info(f"DNS name that will be set in NetBox: {fqdn}")
 
     if netbox_object == "ip-ranges":
         response = requests.get(
@@ -133,7 +146,7 @@ def allocate_in_range(range_id, auth_credentials, resource, allocation, context,
             payload = {
                 "family": 4,
                 "address": str(address["address"]),
-                "dns_name": str(resource["name"]),
+                "dns_name": fqdn,
             }
             if address.get("vrf"):
                 payload["vrf"] = str(address["vrf"]["id"])
@@ -147,8 +160,9 @@ def allocate_in_range(range_id, auth_credentials, resource, allocation, context,
             if post_ip.status_code == 201:
                 ips.append(ip)
             else:
-                error = logging.error(f"Failed to provision IP address with status code: {post_ip.status_code}")
-                return error
+                raise Exception(
+                    f"Failed to provision IP address with status code {post_ip.status_code}: {post_ip.text}"
+                )
         if ips != []:
             break
 
