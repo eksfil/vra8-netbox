@@ -13,6 +13,10 @@ import logging
 from requests.packages import urllib3
 import ipaddress
 
+# Må være like i get_ip_ranges.py og allocate_ip.py
+START_OFFSET = 1   # subnet[1] = .1 i et /24
+END_OFFSET = 3     # subnet[-3] = .253 i et /24
+
 
 def handler(context, inputs):
     ipam = IPAM(context, inputs)
@@ -54,7 +58,7 @@ def do_get_ip_ranges(self, auth_credentials, cert):
             response = requests.get(url, verify=verify, headers=headers)
             response.raise_for_status()
         except Exception as e:
-            raise Exception(f"Failed connecting to URL: '{url}' — original error: {str(e)}")
+            raise Exception(f"Failed connecting to URL: '{url}' - original error: {str(e)}")
 
         payload = response.json()
         r = payload["results"]
@@ -74,8 +78,8 @@ def do_get_ip_ranges(self, auth_credentials, cert):
                 network_range = {
                     "id": str(prefix['id']),
                     "name": range_name,
-                    "startIPAddress": str(subnet[4]),
-                    "endIPAddress": str(subnet[-4]),
+                    "startIPAddress": str(subnet[START_OFFSET]),
+                    "endIPAddress": str(subnet[-END_OFFSET]),
                     "ipVersion": "IPv4",
                     "subnetPrefixLength": str(subnet.prefixlen),
                     "gatewayAddress": str(prefix.get("custom_fields", {}).get("gateway") or subnet[1]),
